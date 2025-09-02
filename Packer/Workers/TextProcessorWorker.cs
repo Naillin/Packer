@@ -7,7 +7,7 @@ namespace Packer.Workers
 	internal class TextProcessorWorker : TextProcessor
 	{
 		private string _pathToFile = "pack.txt";
-		private string _exePath = Assembly.GetExecutingAssembly().Location;
+		private string _exePath = System.AppContext.BaseDirectory;
 		private string _baseInfo = string.Empty;
 		private readonly ILogger<TextProcessorWorker> _logger;
 
