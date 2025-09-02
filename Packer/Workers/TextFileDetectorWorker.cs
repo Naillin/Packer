@@ -7,9 +7,9 @@ namespace Packer.Workers
 {
 	internal class TextFileDetectorWorker : TextFileDetector
 	{
-		private readonly LoggerManager _loggerTextFileDetectorWorker;
+		private readonly ILogger<TextFileDetectorWorker> _logger;
 
-		public TextFileDetectorWorker(ILogger<TextFileDetectorWorker> logger) => _loggerTextFileDetectorWorker = new LoggerManager(logger, "TextFileDetectorWorker");
+		public TextFileDetectorWorker(ILogger<TextFileDetectorWorker> logger) => _logger = logger;
 
 		public override TextDetectionResult Detect(string path, TextDetectionOptions? options = null)
 		{
@@ -30,7 +30,7 @@ namespace Packer.Workers
 			}
 			catch (Exception ex)
 			{
-				_loggerTextFileDetectorWorker.LogWarning($"Не удалось прочитать файл {path}: {ex.Message}");
+				_logger.LogWarning($"Не удалось прочитать файл {path}: {ex.Message}");
 				return new TextDetectionResult
 				{
 					IsText = false,
@@ -52,7 +52,7 @@ namespace Packer.Workers
 			var notes = new List<string>();
 			Encoding? pickedEncoding = null;
 
-			_loggerTextFileDetectorWorker.LogInformation($"Запуск эвристических методов.");
+			_logger.LogInformation($"Запуск эвристических методов.");
 			foreach (var h in _heuristics)
 			{
 				var r = h.Apply(ctx);

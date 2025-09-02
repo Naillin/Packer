@@ -9,7 +9,7 @@ namespace Packer.Workers
 		private string _pathToFile = "pack.txt";
 		private string _exePath = Assembly.GetExecutingAssembly().Location;
 		private string _baseInfo = string.Empty;
-		private readonly LoggerManager _loggerTextProcessorWorker;
+		private readonly ILogger<TextProcessorWorker> _logger;
 
 		public TextProcessorWorker(ILogger<TextProcessorWorker> logger)
 		{
@@ -22,14 +22,14 @@ namespace Packer.Workers
 						Environment.NewLine;
 			File.WriteAllText(_pathToFile, _baseInfo);
 
-			_loggerTextProcessorWorker = new LoggerManager(logger, "TextProcessorWorker");
+			_logger = logger;
 		}
 
 		public override void Process()
 		{
 			if (File.Exists(_pathToFile))
 			{
-				_loggerTextProcessorWorker.LogInformation("Запись данных в файл.");
+				_logger.LogInformation("Запись данных в файл.");
 				using (StreamWriter writer = new StreamWriter(_pathToFile))
 				{
 					foreach (var item in _textData)
@@ -39,7 +39,7 @@ namespace Packer.Workers
 						writer.Write(Environment.NewLine);
 					}
 				}
-				_loggerTextProcessorWorker.LogInformation("Данные записаны.");
+				_logger.LogInformation("Данные записаны.");
 			}
 		}
 	}

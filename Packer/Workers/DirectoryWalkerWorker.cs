@@ -8,14 +8,14 @@ namespace Packer.Workers
 	{
 		private ITextFileDetector _textFileDetector;
 		private ITextProcessor _textProcessor;
-		private readonly LoggerManager _loggerDirectoryWalkerWorker;
+		private readonly ILogger<DirectoryWalkerWorker> _logger;
 		private int _depth = -1;
 
 		public DirectoryWalkerWorker(ITextFileDetector textFileDetector, ITextProcessor textProcessor, ILogger<DirectoryWalkerWorker> logger, string path = "", int depth = -1) : base(path)
 		{
 			_textFileDetector = textFileDetector;
 			_textProcessor = textProcessor;
-			_loggerDirectoryWalkerWorker = new LoggerManager(logger, "DirectoryWalkerWorker");
+			_logger = logger;
 			_depth = depth;
 		}
 		
@@ -35,11 +35,11 @@ namespace Packer.Workers
 			{
 				if (IsIgnored(file))
 				{
-					_loggerDirectoryWalkerWorker.LogInformation($"Игнорирование файла: {file.FullName}");
+					_logger.LogInformation($"Игнорирование файла: {file.FullName}");
 					continue;
 				}
 
-				_loggerDirectoryWalkerWorker.LogInformation($"Файл: {file.FullName}");
+				_logger.LogInformation($"Файл: {file.FullName}");
 				var statusFile = _textFileDetector.Detect(file.FullName);
 
 				if (statusFile.IsText)
@@ -51,7 +51,7 @@ namespace Packer.Workers
 					}
 					catch (Exception ex)
 					{
-						_loggerDirectoryWalkerWorker.LogError($"Ошибка: {ex.Message}");
+						_logger.LogError($"Ошибка: {ex.Message}");
 					}
 					finally
 					{
@@ -60,7 +60,7 @@ namespace Packer.Workers
 				}
 				else
 				{
-					_loggerDirectoryWalkerWorker.LogInformation($"Внимание: {statusFile.Reason}");
+					_logger.LogInformation($"Внимание: {statusFile.Reason}");
 				}
 			}
 
@@ -68,11 +68,11 @@ namespace Packer.Workers
 			{
 				if (IsIgnored(directory))
 				{
-					_loggerDirectoryWalkerWorker.LogInformation($"Игнорирование папки: {directory.FullName}");
+					_logger.LogInformation($"Игнорирование папки: {directory.FullName}");
 					continue;
 				}
 
-				_loggerDirectoryWalkerWorker.LogInformation($"Папка: {directory.FullName} (Глубина: {currentDepth})");
+				_logger.LogInformation($"Папка: {directory.FullName} (Глубина: {currentDepth})");
 				TraverseDirectory(directory, currentDepth + 1);
 			}
 		}

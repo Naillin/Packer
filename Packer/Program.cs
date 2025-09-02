@@ -1,4 +1,6 @@
-﻿using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Packer.Core.Interfaces;
 using Packer.Workers;
 
@@ -6,31 +8,58 @@ namespace Packer
 {
 	internal class Program
 	{
-		private static LoggerManager _loggerProgram;
-		private static string path = string.Empty;
-		private static int depth = -1;
-
 		static void Main(string[] args)
 		{
-			ILoggerFactory loggerFactory;
-			if (OperatingSystem.IsLinux()) 
+			// Парсим аргументы
+			(string path, int depth) = parseArgs(args);
+
+			// Создаем хост с DI контейнером
+			var host = CreateHostBuilder(path, depth).Build();
+
+			// Получаем сервис и запускаем
+			var walker = host.Services.GetRequiredService<IDirectoryWalker>();
+			walker.WalkOnDirectory();
+
+			Console.ReadKey();
+		}
+
+		private static IHostBuilder CreateHostBuilder(string path = "", int depth = -1) => Host.CreateDefaultBuilder()
+		.ConfigureServices((context, services) =>
+		{
+			// Регистрируем сервисы
+			services.AddSingleton<ITextFileDetector, TextFileDetectorWorker>();
+			services.AddSingleton<ITextProcessor, TextProcessorWorker>();
+
+			services.AddSingleton<IDirectoryWalker>(provider =>
 			{
-				loggerFactory = LoggerFactory.Create(builder =>
-				{
-					builder.AddSystemdConsole().SetMinimumLevel(LogLevel.Debug);
-				});
+				var loggerFactory = provider.GetRequiredService<ILoggerFactory>();
+				var detector = provider.GetRequiredService<ITextFileDetector>();
+				var processor = provider.GetRequiredService<ITextProcessor>();
+				var logger = loggerFactory.CreateLogger<DirectoryWalkerWorker>();
+
+				return new DirectoryWalkerWorker(detector, processor, logger, path, depth);
+			});
+		})
+		.ConfigureLogging((context, logging) =>
+		{
+			logging.ClearProviders();
+
+			if (OperatingSystem.IsLinux())
+			{
+				logging.AddSystemdConsole().SetMinimumLevel(LogLevel.Debug);
 			}
 			else
 			{
-				loggerFactory = LoggerFactory.Create(builder =>
-				{
-					builder.AddConsole().SetMinimumLevel(LogLevel.Debug);
-				});
+				logging.AddConsole().SetMinimumLevel(LogLevel.Debug);
 			}
-				
-			_loggerProgram = new LoggerManager(loggerFactory.CreateLogger<Program>(), "TextFileDetectorWorker");
-			_loggerProgram.LogInformation("Starting.");
+		});
 
+
+		private static (string, int) parseArgs(string[] args)
+		{
+			// Парсим аргументы
+			string path = string.Empty;
+			int depth = -1;
 			var dict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 			foreach (var arg in args)
 			{
@@ -45,14 +74,7 @@ namespace Packer
 			if (dict.TryGetValue("depth", out var depthValue) && int.TryParse(depthValue, out int d))
 				depth = d;
 
-			ITextFileDetector textFileDetector = new TextFileDetectorWorker(loggerFactory.CreateLogger<TextFileDetectorWorker>());
-			ITextProcessor textProcessor = new TextProcessorWorker(loggerFactory.CreateLogger<TextProcessorWorker>());
-			
-			IDirectoryWalker directoryWalker = new DirectoryWalkerWorker(textFileDetector, textProcessor, loggerFactory.CreateLogger<DirectoryWalkerWorker>(), path, depth);
-			directoryWalker.WalkOnDirectory();
-			_loggerProgram.LogInformation("Successfully completed.");
-
-			Console.ReadKey();
+			return (path, depth);
 		}
 	}
 }

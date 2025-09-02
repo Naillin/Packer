@@ -1,0 +1,10 @@
+.packingore
+pack.txt
+
+bin
+.log
+obj
+.gitignore
+LICENSE
+.git
+.vs

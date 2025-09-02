@@ -1,0 +1,1024 @@
+C:\Users\kamil\YandexDisk\Files\ARCANUM_STUDIO\Other\Packer\Packer.sln
+
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.14.36401.2 d17.14
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Packer", "Packer\Packer.csproj", "{4132AAAE-6AC2-4476-9F6A-77C1693515F9}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{4132AAAE-6AC2-4476-9F6A-77C1693515F9}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{4132AAAE-6AC2-4476-9F6A-77C1693515F9}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{4132AAAE-6AC2-4476-9F6A-77C1693515F9}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{4132AAAE-6AC2-4476-9F6A-77C1693515F9}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {0D807AB5-F1E1-4B39-9D5D-66B6E86AF401}
+	EndGlobalSection
+EndGlobal
+
+
+C:\Users\kamil\YandexDisk\Files\ARCANUM_STUDIO\Other\Packer\README.md
+# Packer
+
+Утилита для рекурсивного обхода директорий и упаковки текстовых файлов в единый архивный файл.
+
+## Описание
+
+Packer - это консольное приложение на C#, которое:
+- Рекурсивно обходит указанную директорию
+- Определяет, является ли файл текстовым с помощью эвристического анализа
+- Собирает содержимое текстовых файлов в единый файл `pack.txt`
+- Поддерживает игнорирование файлов и директорий через файл `.packingore`
+
+## Возможности
+
+- **Эвристическое определение текстовых файлов** - анализ содержимого файлов для определения их типа
+- **Поддержка различных кодировок** - автоматическое определение UTF-8, UTF-16, и других кодировок
+- **Гибкая система игнорирования** - настраиваемые правила исключения файлов и директорий
+- **Логирование** - подробное логирование процесса работы
+- **Кроссплатформенность** - работает на Windows и Linux
+
+
+C:\Users\kamil\YandexDisk\Files\ARCANUM_STUDIO\Other\Packer\Packer\Packer.csproj
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.0.8" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.8" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="9.0.8" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="9.0.8" />
+    <PackageReference Include="Serilog.Extensions.Logging.File" Version="3.0.0" />
+    <PackageReference Include="Tmds.Systemd.Logging" Version="0.8.0" />
+  </ItemGroup>
+
+</Project>
+
+
+C:\Users\kamil\YandexDisk\Files\ARCANUM_STUDIO\Other\Packer\Packer\Packer.csproj.user
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="Current" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <_LastSelectedProfileId>C:\Users\kamil\YandexDisk\Files\ARCANUM_STUDIO\Other\Packer\Packer\Properties\PublishProfiles\FolderProfile1.pubxml</_LastSelectedProfileId>
+  </PropertyGroup>
+</Project>
+
+C:\Users\kamil\YandexDisk\Files\ARCANUM_STUDIO\Other\Packer\Packer\Program.cs
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using Serilog.Extensions.Logging.File;
+using Packer.Core.Interfaces;
+using Packer.Workers;
+
+namespace Packer
+{
+	internal class Program
+	{
+		static void Main(string[] args)
+		{
+			// Парсим аргументы
+			(string path, int depth) = parseArgs(args);
+
+			// Создаем хост с DI контейнером
+			var host = CreateHostBuilder(path, depth).Build();
+
+			// Получаем сервис и запускаем
+			var walker = host.Services.GetRequiredService<IDirectoryWalker>();
+			walker.WalkOnDirectory();
+
+			Console.ReadKey();
+		}
+
+		private static IHostBuilder CreateHostBuilder(string path = "", int depth = -1) => Host.CreateDefaultBuilder().ConfigureServices((context, services) =>
+		{
+			// Регистрируем сервисы
+			services.AddSingleton<ITextFileDetector, TextFileDetectorWorker>();
+			services.AddSingleton<ITextProcessor, TextProcessorWorker>();
+
+			// Регистрируем DirectoryWalkerWorker с параметрами
+			services.AddSingleton<IDirectoryWalker>(provider =>
+			{
+				var loggerFactory = provider.GetRequiredService<ILoggerFactory>();
+				var detector = provider.GetRequiredService<ITextFileDetector>();
+				var processor = provider.GetRequiredService<ITextProcessor>();
+				var logger = loggerFactory.CreateLogger<DirectoryWalkerWorker>();
+
+				return new DirectoryWalkerWorker(detector, processor, logger, path, depth);
+			});
+
+			// Регистрируем фабрику логгеров
+			services.AddLogging(builder =>
+			{
+				if (OperatingSystem.IsLinux())
+				{
+					builder.AddSystemdConsole().SetMinimumLevel(LogLevel.Debug);
+				}
+				else
+				{
+					builder.AddConsole().SetMinimumLevel(LogLevel.Debug);
+				}
+				// Файловое логирование (заменяем функциональность LoggerManager)
+				builder.AddFile("log.log", options =>
+				{
+					options.MinLevel = LogLevel.Debug;
+					options.FileName = "log-";       // префикс имени файла
+					options.Extension = ".log";       // расширение
+					options.MaxFileSize = 10485760;   // 10MB
+					options.RetainedFileCount = 5;    // хранить 5 файлов
+				});
+			});
+		});
+
+		private static (string, int) parseArgs(string[] args)
+		{
+			// Парсим аргументы
+			string path = string.Empty;
+			int depth = -1;
+			var dict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+			foreach (var arg in args)
+			{
+				var parts = arg.Split('=', 2);
+				if (parts.Length == 2)
+				{
+					dict[parts[0]] = parts[1];
+				}
+			}
+			if (dict.TryGetValue("path", out var pathValue))
+				path = pathValue;
+			if (dict.TryGetValue("depth", out var depthValue) && int.TryParse(depthValue, out int d))
+				depth = d;
+
+			return (path, depth);
+		}
+	}
+}
+
+
+C:\Users\kamil\YandexDisk\Files\ARCANUM_STUDIO\Other\Packer\Packer\Core\Interfaces\IDirectoryWalker.cs
+
+namespace Packer.Core.Interfaces
+{
+	internal interface IDirectoryWalker
+	{
+		void WalkOnDirectory();
+	}
+}
+
+
+C:\Users\kamil\YandexDisk\Files\ARCANUM_STUDIO\Other\Packer\Packer\Core\Interfaces\IHeuristic.cs
+using Packer.Core.Models;
+
+namespace Packer.Core.Interfaces
+{
+	internal interface IHeuristic
+	{
+		HeuristicResult? Apply(HeuristicContext ctx);
+	}
+}
+
+
+C:\Users\kamil\YandexDisk\Files\ARCANUM_STUDIO\Other\Packer\Packer\Core\Interfaces\ITextFileDetector.cs
+using Packer.Core.Models;
+
+namespace Packer.Core.Interfaces
+{
+	internal interface ITextFileDetector
+	{
+		TextDetectionResult Detect(string path, TextDetectionOptions? options = null);
+	}
+}
+
+
+C:\Users\kamil\YandexDisk\Files\ARCANUM_STUDIO\Other\Packer\Packer\Core\Interfaces\ITextProcessor.cs
+
+namespace Packer.Core.Interfaces
+{
+	internal interface ITextProcessor
+	{
+		void Add(string path, string data);
+
+		void Delete(string path);
+
+		void Process();
+	}
+}
+
+
+C:\Users\kamil\YandexDisk\Files\ARCANUM_STUDIO\Other\Packer\Packer\Core\Models\HeuristicResult.cs
+using System.Text;
+
+namespace Packer.Core.Models
+{
+	internal sealed class HeuristicResult
+	{
+		public double ScoreDelta { get; }
+		public string Note { get; }
+		public Encoding? SuggestedEncoding { get; }
+
+		public HeuristicResult(double delta, string note, Encoding? enc = null)
+		{
+			ScoreDelta = delta;
+			Note = note;
+			SuggestedEncoding = enc;
+		}
+	}
+}
+
+
+C:\Users\kamil\YandexDisk\Files\ARCANUM_STUDIO\Other\Packer\Packer\Core\Models\TextDetectionResult.cs
+using System.Text;
+
+namespace Packer.Core.Models
+{
+	internal sealed class TextDetectionResult
+	{
+		public bool IsText { get; init; }
+		public double Confidence { get; init; }      // [0..1]
+		public Encoding? DetectedEncoding { get; init; }
+		public string Reason { get; init; } = string.Empty;
+	}
+}
+
+
+C:\Users\kamil\YandexDisk\Files\ARCANUM_STUDIO\Other\Packer\Packer\Core\Units\ContextFlags.cs
+
+namespace Packer.Core
+{
+	[Flags]
+	internal enum ContextFlags
+	{
+		None = 0,
+		HasBOM = 1 << 0,
+		UTF16LELike = 1 << 1,
+		UTF16BELike = 1 << 2,
+		LikelyBinary = 1 << 3
+	}
+}
+
+
+C:\Users\kamil\YandexDisk\Files\ARCANUM_STUDIO\Other\Packer\Packer\Core\Units\DirectoryWalker.cs
+using Packer.Core.Interfaces;
+
+namespace Packer.Core
+{
+	internal abstract class DirectoryWalker : IDirectoryWalker
+	{
+		protected DirectoryInfo _directoryInfo;
+		private string _ignorePath = ".packingore";
+		protected HashSet<string> _ignore = new HashSet<string>();
+
+		public DirectoryWalker(string path = "")
+		{
+			if (string.IsNullOrWhiteSpace(path))
+				_directoryInfo = new DirectoryInfo(Environment.CurrentDirectory);
+			else
+				_directoryInfo = new DirectoryInfo(path);
+
+			GetIgnore();
+		}
+
+		private void GetIgnore()
+		{
+			if (!File.Exists(_ignorePath))
+				File.WriteAllText(_ignorePath, ".packingore\npack.txt");
+			else
+				_ignore = File.ReadAllLines(_ignorePath).ToHashSet<string>();
+		}
+
+		protected bool IsIgnored(FileSystemInfo fsi)
+		{
+			string fullPath = fsi.FullName;
+			string name = fsi.Name;
+			string ext = fsi is FileInfo fi ? fi.Extension : string.Empty;
+
+			if (name == "pack.txt" || name == ".packingore" || ext == ".packingore")
+				return true;
+
+			// Проверяем по полному пути
+			if (_ignore.Contains(fullPath, StringComparer.OrdinalIgnoreCase))
+				return true;
+
+			// Проверяем по имени файла/папки
+			if (_ignore.Contains(name, StringComparer.OrdinalIgnoreCase))
+				return true;
+
+			// Проверяем по расширению
+			if (!string.IsNullOrEmpty(ext) && _ignore.Contains(ext, StringComparer.OrdinalIgnoreCase))
+				return true;
+
+			return false;
+		}
+
+		public abstract void WalkOnDirectory();
+	}
+}
+
+
+C:\Users\kamil\YandexDisk\Files\ARCANUM_STUDIO\Other\Packer\Packer\Core\Units\HeuristicContext.cs
+
+namespace Packer.Core
+{
+	internal sealed class HeuristicContext
+	{
+		public byte[] Buffer { get; }
+		public int Read { get; }
+		public string Extension { get; }
+		public TextDetectionOptions Options { get; }
+		public ContextFlags Flags { get; set; }
+
+		public HeuristicContext(byte[] buffer, int read, string ext, TextDetectionOptions options)
+		{
+			Buffer = buffer;
+			Read = read;
+			Extension = ext ?? string.Empty;
+			Options = options;
+		}
+	}
+}
+
+
+C:\Users\kamil\YandexDisk\Files\ARCANUM_STUDIO\Other\Packer\Packer\Core\Units\TextDetectionOptions.cs
+
+namespace Packer.Core
+{
+	internal sealed class TextDetectionOptions
+	{
+		public int SampleSize { get; init; } = 8192;
+		public double MinConfidence { get; init; } = 0.50; // порог для IsText
+		public IReadOnlySet<string> TextExtensions { get; init; } = DefaultTextExtensions();
+		public IReadOnlySet<string> BinaryExtensions { get; init; } = DefaultBinaryExtensions();
+
+		private static HashSet<string> DefaultTextExtensions() => new(StringComparer.OrdinalIgnoreCase)
+		{
+			".txt",".log",".csv",".tsv",".json",".xml",".yaml",".yml",".ini",".cfg",".properties",
+			".md",".rst",".html",".htm",".css",".js",".ts",".tsx",".jsx",
+			".cs",".cpp",".cxx",".cc",".c",".h",".hpp",".csproj",".sln",
+			".sql",".bat",".cmd",".ps1",".sh",".dockerfile",".toml",".gradle",".kt"
+		};
+
+		private static HashSet<string> DefaultBinaryExtensions() => new(StringComparer.OrdinalIgnoreCase)
+		{
+			".exe",".dll",".so",".dylib",".png",".jpg",".jpeg",".gif",".bmp",".ico",
+			".pdf",".zip",".rar",".7z",".xz",".gz",".tar",".iso",
+			".mp3",".wav",".flac",".mp4",".mkv",".avi",".mov",
+			".doc",".docx",".xls",".xlsx",".ppt",".pptx"
+		};
+	}
+}
+
+
+C:\Users\kamil\YandexDisk\Files\ARCANUM_STUDIO\Other\Packer\Packer\Core\Units\TextFileDetector.cs
+using Packer.Core.Interfaces;
+using Packer.Core.Models;
+using Packer.Heuristics;
+using System.Text;
+
+namespace Packer.Core
+{
+	internal abstract class TextFileDetector : ITextFileDetector
+	{
+		protected readonly List<IHeuristic> _heuristics = new()
+		{
+			new ExtensionPriorHeuristic(),
+			new BomHeuristic(),
+			new Utf16PatternHeuristic(),
+			new NullByteHeuristic(),
+			new ControlCharHeuristic(),
+			new Utf8DecodeHeuristic(),
+			new PrintableRatioHeuristic(),
+			new LineBreakHeuristic(),
+			new LanguageHintsHeuristic(),
+		};
+
+		public abstract TextDetectionResult Detect(string path, TextDetectionOptions? options = null);
+
+		protected static Encoding GuessFallbackEncoding(HeuristicContext ctx)
+		{
+			if (ctx.Flags.HasFlag(ContextFlags.UTF16LELike)) return Encoding.Unicode;       // UTF-16LE
+			if (ctx.Flags.HasFlag(ContextFlags.UTF16BELike)) return Encoding.BigEndianUnicode; // UTF-16BE
+
+			// Попробуем UTF-8 без BOM — самый безопасный дефолт для современных файлов
+			try
+			{
+				var utf8Strict = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
+				_ = utf8Strict.GetString(ctx.Buffer, 0, ctx.Read);
+				return Encoding.UTF8;
+			}
+			catch { /* ignore */ }
+
+			// На Windows для "ANSI" разумно отдать текущую однобайтовую OEM/ACP
+			return Encoding.Default;
+		}
+	}
+}
+
+
+C:\Users\kamil\YandexDisk\Files\ARCANUM_STUDIO\Other\Packer\Packer\Core\Units\TextProcessor.cs
+using Packer.Core.Interfaces;
+
+namespace Packer.Core
+{
+	internal abstract class TextProcessor : ITextProcessor
+	{
+		public TextProcessor() { }
+
+		protected Dictionary<string, string> _textData = new Dictionary<string, string>();
+
+		public void Add(string path, string data)
+		{
+			_textData.Add(path, data);
+		}
+
+		public void Delete(string path)
+		{
+			_textData.Remove(path);
+		}
+
+		public abstract void Process();
+	}
+}
+
+
+C:\Users\kamil\YandexDisk\Files\ARCANUM_STUDIO\Other\Packer\Packer\Heuristics\BomHeuristic.cs
+using Packer.Core;
+using Packer.Core.Interfaces;
+using Packer.Core.Models;
+using System.Text;
+
+namespace Packer.Heuristics
+{
+	internal sealed class BomHeuristic : IHeuristic
+	{
+		public HeuristicResult? Apply(HeuristicContext ctx)
+		{
+			var b = ctx.Buffer; int n = ctx.Read;
+			if (n >= 3 && b[0] == 0xEF && b[1] == 0xBB && b[2] == 0xBF)
+			{
+				ctx.Flags |= ContextFlags.HasBOM;
+				return new HeuristicResult(+0.40, "Найден BOM UTF-8.", new UTF8Encoding(false));
+			}
+			if (n >= 2 && b[0] == 0xFF && b[1] == 0xFE)
+			{
+				ctx.Flags |= ContextFlags.HasBOM | ContextFlags.UTF16LELike;
+				return new HeuristicResult(+0.50, "Найден BOM UTF-16 LE.", Encoding.Unicode);
+			}
+			if (n >= 2 && b[0] == 0xFE && b[1] == 0xFF)
+			{
+				ctx.Flags |= ContextFlags.HasBOM | ContextFlags.UTF16BELike;
+				return new HeuristicResult(+0.50, "Найден BOM UTF-16 BE.", Encoding.BigEndianUnicode);
+			}
+			return null;
+		}
+	}
+}
+
+
+C:\Users\kamil\YandexDisk\Files\ARCANUM_STUDIO\Other\Packer\Packer\Heuristics\ControlCharHeuristic.cs
+using Packer.Core;
+using Packer.Core.Interfaces;
+using Packer.Core.Models;
+
+namespace Packer.Heuristics
+{
+	internal sealed class ControlCharHeuristic : IHeuristic
+	{
+		public HeuristicResult? Apply(HeuristicContext ctx)
+		{
+			int ctrl = 0;
+			for (int i = 0; i < ctx.Read; i++)
+			{
+				byte b = ctx.Buffer[i];
+				bool isAllowedWhitespace = b is 0x09 or 0x0A or 0x0D; // \t \n \r
+				if (b < 0x20 && !isAllowedWhitespace) ctrl++;
+			}
+
+			if (ctrl == 0) return new HeuristicResult(+0.10, "Управляющих символов нет (кроме CR/LF/TAB).");
+
+			double p = (double)ctrl / ctx.Read;
+			if (p > 0.10) return new HeuristicResult(-0.40, $"Много управляющих символов ({p:P0}).");
+			return new HeuristicResult(-0.15, $"Обнаружены управляющие символы ({p:P0}).");
+		}
+	}
+}
+
+
+C:\Users\kamil\YandexDisk\Files\ARCANUM_STUDIO\Other\Packer\Packer\Heuristics\ExtensionPriorHeuristic.cs
+using Packer.Core;
+using Packer.Core.Interfaces;
+using Packer.Core.Models;
+
+namespace Packer.Heuristics
+{
+	internal sealed class ExtensionPriorHeuristic : IHeuristic
+	{
+		public HeuristicResult? Apply(HeuristicContext ctx)
+		{
+			if (string.IsNullOrEmpty(ctx.Extension)) return null;
+
+			if (ctx.Options.TextExtensions.Contains(ctx.Extension))
+				return new HeuristicResult(+0.15, $"Расширение {ctx.Extension} типично текстовое.");
+			if (ctx.Options.BinaryExtensions.Contains(ctx.Extension))
+				return new HeuristicResult(-0.40, $"Расширение {ctx.Extension} типично бинарное.");
+			return null;
+		}
+	}
+}
+
+
+C:\Users\kamil\YandexDisk\Files\ARCANUM_STUDIO\Other\Packer\Packer\Heuristics\LanguageHintsHeuristic.cs
+using Packer.Core;
+using Packer.Core.Interfaces;
+using Packer.Core.Models;
+using System.Text;
+
+namespace Packer.Heuristics
+{
+	internal sealed class LanguageHintsHeuristic : IHeuristic
+	{
+		public HeuristicResult? Apply(HeuristicContext ctx)
+		{
+			// Лёгкие маркеры языков/разметки для .sql/.xml/.cpp/.cs и др.
+			var sampleLen = Math.Min(ctx.Read, 4096);
+			string asciiPreview = SafeAsciiPreview(ctx.Buffer, sampleLen);
+
+			int bump = 0;
+			void Hit(string what) { bump++; }
+
+			if (asciiPreview.Contains("<?xml") || asciiPreview.Contains("<xml")) Hit("xml");
+			if (asciiPreview.Contains("#include") || asciiPreview.Contains("//") || asciiPreview.Contains("/*")) Hit("c/cpp");
+			if (asciiPreview.Contains("using ") || asciiPreview.Contains("namespace ")) Hit("csharp/cpp");
+			if (asciiPreview.Contains("CREATE TABLE") || asciiPreview.Contains("INSERT INTO") || asciiPreview.Contains("SELECT ")) Hit("sql");
+			if (asciiPreview.Contains("{") && asciiPreview.Contains("}")) Hit("curly");
+
+			if (bump >= 2) return new HeuristicResult(+0.10, "Найдены характерные маркеры языков/разметки.");
+			if (bump == 1) return new HeuristicResult(+0.05, "Обнаружен маркер текста/кода.");
+			return null;
+
+			static string SafeAsciiPreview(byte[] buf, int len)
+			{
+				var sb = new StringBuilder(len);
+				for (int i = 0; i < len; i++)
+				{
+					byte b = buf[i];
+					if (b == 0x09 || b == 0x0A || b == 0x0D || (b >= 0x20 && b <= 0x7E))
+						sb.Append((char)b);
+					else
+						sb.Append(' ');
+				}
+				return sb.ToString();
+			}
+		}
+	}
+}
+
+
+C:\Users\kamil\YandexDisk\Files\ARCANUM_STUDIO\Other\Packer\Packer\Heuristics\LineBreakHeuristic.cs
+using Packer.Core;
+using Packer.Core.Interfaces;
+using Packer.Core.Models;
+
+namespace Packer.Heuristics
+{
+	internal sealed class LineBreakHeuristic : IHeuristic
+	{
+		public HeuristicResult? Apply(HeuristicContext ctx)
+		{
+			int lf = 0;
+			for (int i = 0; i < ctx.Read; i++) if (ctx.Buffer[i] == (byte)'\n') lf++;
+			if (lf == 0) return null;
+			return new HeuristicResult(+0.05, "Обнаружены переводы строк.");
+		}
+	}
+}
+
+
+C:\Users\kamil\YandexDisk\Files\ARCANUM_STUDIO\Other\Packer\Packer\Heuristics\NullByteHeuristic.cs
+using Packer.Core;
+using Packer.Core.Interfaces;
+using Packer.Core.Models;
+
+namespace Packer.Heuristics
+{
+	internal sealed class NullByteHeuristic : IHeuristic
+	{
+		public HeuristicResult? Apply(HeuristicContext ctx)
+		{
+			// Если это похоже на UTF-16 — нули допустимы
+			if ((ctx.Flags & (ContextFlags.UTF16LELike | ContextFlags.UTF16BELike)) != 0) return null;
+
+			int zeros = 0;
+			for (int i = 0; i < ctx.Read; i++) if (ctx.Buffer[i] == 0) zeros++;
+
+			if (zeros == 0) return new HeuristicResult(+0.05, "Нулевых байтов нет.");
+			double p = (double)zeros / ctx.Read;
+			if (p >= 0.02) // много нулей для «обычного» текста
+			{
+				ctx.Flags |= ContextFlags.LikelyBinary;
+				return new HeuristicResult(-0.50, $"Найдено много нулевых байтов ({p:P0}).");
+			}
+			return new HeuristicResult(-0.10, $"Найдены нулевые байты ({p:P0}).");
+		}
+	}
+}
+
+
+C:\Users\kamil\YandexDisk\Files\ARCANUM_STUDIO\Other\Packer\Packer\Heuristics\PrintableRatioHeuristic.cs
+using Packer.Core;
+using Packer.Core.Interfaces;
+using Packer.Core.Models;
+
+namespace Packer.Heuristics
+{
+	internal sealed class PrintableRatioHeuristic : IHeuristic
+	{
+		public HeuristicResult? Apply(HeuristicContext ctx)
+		{
+			int printable = 0, bytes = ctx.Read;
+
+			for (int i = 0; i < bytes; i++)
+			{
+				byte b = ctx.Buffer[i];
+				if (b == 0x09 || b == 0x0A || b == 0x0D) { printable++; continue; } // \t \n \r
+				if (b >= 0x20 && b <= 0x7E) { printable++; continue; }              // видимые ASCII
+																					// байты >= 0x80 оставим нейтральными — это может быть UTF-8/однобайтные локали
+			}
+
+			double ratio = (double)printable / Math.Max(1, bytes);
+			if (ratio >= 0.85) return new HeuristicResult(+0.20, $"Высокая доля печатаемых ASCII ({ratio:P0}).");
+			if (ratio < 0.50) return new HeuristicResult(-0.20, $"Низкая доля печатаемых ASCII ({ratio:P0}).");
+			return null;
+		}
+	}
+}
+
+
+C:\Users\kamil\YandexDisk\Files\ARCANUM_STUDIO\Other\Packer\Packer\Heuristics\Utf16PatternHeuristic.cs
+using Packer.Core;
+using Packer.Core.Interfaces;
+using Packer.Core.Models;
+
+namespace Packer.Heuristics
+{
+	/// <summary>
+	/// Обнаружение UTF-16 без BOM: у ASCII-текста в UTF-16LE нули стоят в байтах с нечётным индексом, в BE — с чётным.
+	/// </summary>
+	internal sealed class Utf16PatternHeuristic : IHeuristic
+	{
+		public HeuristicResult? Apply(HeuristicContext ctx)
+		{
+			var b = ctx.Buffer; int n = ctx.Read;
+			if (n < 4 || (ctx.Flags & (ContextFlags.UTF16LELike | ContextFlags.UTF16BELike)) != 0) return null;
+
+			int zerosEven = 0, zerosOdd = 0, consider = Math.Min(n, 4096);
+			for (int i = 0; i < consider; i++)
+			{
+				if (b[i] == 0) { if ((i & 1) == 0) zerosEven++; else zerosOdd++; }
+			}
+			// Требуем заметную долю нулей и асимметрию
+			int totalZeros = zerosEven + zerosOdd;
+			if (totalZeros < consider * 0.1) return null;
+
+			if (zerosOdd > zerosEven * 3)
+			{
+				ctx.Flags |= ContextFlags.UTF16LELike;
+				return new HeuristicResult(+0.30, "Похоже на UTF-16 LE без BOM.");
+			}
+			if (zerosEven > zerosOdd * 3)
+			{
+				ctx.Flags |= ContextFlags.UTF16BELike;
+				return new HeuristicResult(+0.30, "Похоже на UTF-16 BE без BOM.");
+			}
+			return null;
+		}
+	}
+}
+
+
+C:\Users\kamil\YandexDisk\Files\ARCANUM_STUDIO\Other\Packer\Packer\Heuristics\Utf8DecodeHeuristic.cs
+using Packer.Core;
+using Packer.Core.Interfaces;
+using Packer.Core.Models;
+using System.Text;
+
+namespace Packer.Heuristics
+{
+	internal sealed class Utf8DecodeHeuristic : IHeuristic
+	{
+		public HeuristicResult? Apply(HeuristicContext ctx)
+		{
+			// Если уже определили UTF-16 — пропускаем
+			if ((ctx.Flags & (ContextFlags.UTF16LELike | ContextFlags.UTF16BELike)) != 0) return null;
+
+			try
+			{
+				var utf8Strict = new UTF8Encoding(false, true);
+				_ = utf8Strict.GetString(ctx.Buffer, 0, ctx.Read);
+				return new HeuristicResult(+0.25, "Строгое декодирование UTF-8 прошло успешно.", Encoding.UTF8);
+			}
+			catch
+			{
+				return new HeuristicResult(-0.20, "Строгое декодирование UTF-8 не прошло — вероятно бинарный или иная кодировка.");
+			}
+		}
+	}
+}
+
+
+C:\Users\kamil\YandexDisk\Files\ARCANUM_STUDIO\Other\Packer\Packer\Properties\PublishProfiles\FolderProfile.pubxml
+<?xml version="1.0" encoding="utf-8"?>
+<!-- https://go.microsoft.com/fwlink/?LinkID=208121. -->
+<Project>
+  <PropertyGroup>
+    <Configuration>Release</Configuration>
+    <Platform>Any CPU</Platform>
+    <PublishDir>bin\Release\net8.0\publish\win-x64\</PublishDir>
+    <PublishProtocol>FileSystem</PublishProtocol>
+    <_TargetId>Folder</_TargetId>
+    <TargetFramework>net8.0</TargetFramework>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <PublishReadyToRun>true</PublishReadyToRun>
+    <PublishTrimmed>true</PublishTrimmed>
+  </PropertyGroup>
+</Project>
+
+C:\Users\kamil\YandexDisk\Files\ARCANUM_STUDIO\Other\Packer\Packer\Properties\PublishProfiles\FolderProfile.pubxml.user
+<?xml version="1.0" encoding="utf-8"?>
+<!-- https://go.microsoft.com/fwlink/?LinkID=208121. -->
+<Project>
+  <PropertyGroup>
+    <History>True|2025-08-30T18:01:46.2297441Z||;True|2025-08-30T22:51:44.8726609+05:00||;True|2025-08-30T22:34:30.8123154+05:00||;True|2025-08-30T22:28:04.5492565+05:00||;True|2025-08-30T22:25:36.3505752+05:00||;True|2025-08-30T22:24:42.4222357+05:00||;</History>
+    <LastFailureDetails />
+  </PropertyGroup>
+</Project>
+
+C:\Users\kamil\YandexDisk\Files\ARCANUM_STUDIO\Other\Packer\Packer\Properties\PublishProfiles\FolderProfile1.pubxml
+<?xml version="1.0" encoding="utf-8"?>
+<!-- https://go.microsoft.com/fwlink/?LinkID=208121. -->
+<Project>
+  <PropertyGroup>
+    <Configuration>Release</Configuration>
+    <Platform>Any CPU</Platform>
+    <PublishDir>bin\Release\net8.0\publish\linux-x64\</PublishDir>
+    <PublishProtocol>FileSystem</PublishProtocol>
+    <_TargetId>Folder</_TargetId>
+    <TargetFramework>net8.0</TargetFramework>
+    <RuntimeIdentifier>linux-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <PublishTrimmed>true</PublishTrimmed>
+  </PropertyGroup>
+</Project>
+
+C:\Users\kamil\YandexDisk\Files\ARCANUM_STUDIO\Other\Packer\Packer\Properties\PublishProfiles\FolderProfile1.pubxml.user
+<?xml version="1.0" encoding="utf-8"?>
+<!-- https://go.microsoft.com/fwlink/?LinkID=208121. -->
+<Project>
+  <PropertyGroup>
+    <History>True|2025-08-30T18:02:02.5017015Z||;</History>
+    <LastFailureDetails />
+  </PropertyGroup>
+</Project>
+
+C:\Users\kamil\YandexDisk\Files\ARCANUM_STUDIO\Other\Packer\Packer\Workers\DirectoryWalkerWorker.cs
+using Microsoft.Extensions.Logging;
+using Packer.Core;
+using Packer.Core.Interfaces;
+
+namespace Packer.Workers
+{
+	internal class DirectoryWalkerWorker : DirectoryWalker
+	{
+		private ITextFileDetector _textFileDetector;
+		private ITextProcessor _textProcessor;
+		private readonly ILogger<DirectoryWalkerWorker> _logger;
+		private int _depth = -1;
+
+		public DirectoryWalkerWorker(ITextFileDetector textFileDetector, ITextProcessor textProcessor, ILogger<DirectoryWalkerWorker> logger, string path = "", int depth = -1) : base(path)
+		{
+			_textFileDetector = textFileDetector;
+			_textProcessor = textProcessor;
+			_logger = logger;
+			_depth = depth;
+		}
+		
+		public override void WalkOnDirectory()
+		{
+			TraverseDirectory(_directoryInfo);
+			_textProcessor.Process();
+		}
+
+		private void TraverseDirectory(DirectoryInfo directoryInfo, int currentDepth = 0)
+		{
+			// Если превышена максимальная глубина, выходим
+			if (_depth >= 0 && currentDepth > _depth)
+				return;
+
+			foreach (FileInfo file in directoryInfo.GetFiles())
+			{
+				if (IsIgnored(file))
+				{
+					_logger.LogInformation($"Игнорирование файла: {file.FullName}");
+					continue;
+				}
+
+				_logger.LogInformation($"Файл: {file.FullName}");
+				var statusFile = _textFileDetector.Detect(file.FullName);
+
+				if (statusFile.IsText)
+				{
+					string data = "Пусто или не получилось прочесть содержимое!";
+					try
+					{
+						data = File.ReadAllText(file.FullName);
+					}
+					catch (Exception ex)
+					{
+						_logger.LogError($"Ошибка: {ex.Message}");
+					}
+					finally
+					{
+						_textProcessor.Add(file.FullName, data);
+					}
+				}
+				else
+				{
+					_logger.LogInformation($"Внимание: {statusFile.Reason}");
+				}
+			}
+
+			foreach (DirectoryInfo directory in directoryInfo.GetDirectories())
+			{
+				if (IsIgnored(directory))
+				{
+					_logger.LogInformation($"Игнорирование папки: {directory.FullName}");
+					continue;
+				}
+
+				_logger.LogInformation($"Папка: {directory.FullName} (Глубина: {currentDepth})");
+				TraverseDirectory(directory, currentDepth + 1);
+			}
+		}
+	}
+}
+
+
+C:\Users\kamil\YandexDisk\Files\ARCANUM_STUDIO\Other\Packer\Packer\Workers\TextFileDetectorWorker.cs
+using Microsoft.Extensions.Logging;
+using Packer.Core;
+using Packer.Core.Models;
+using System.Text;
+
+namespace Packer.Workers
+{
+	internal class TextFileDetectorWorker : TextFileDetector
+	{
+		private readonly ILogger<TextFileDetectorWorker> _logger;
+
+		public TextFileDetectorWorker(ILogger<TextFileDetectorWorker> logger) => _logger = logger;
+
+		public override TextDetectionResult Detect(string path, TextDetectionOptions? options = null)
+		{
+			options ??= new TextDetectionOptions();
+
+			string tempFile = Path.GetTempFileName();
+			byte[] buffer;
+			int read;
+			try
+			{
+				// Создаём копию файла, чтобы не зависеть от блокировок
+				File.Copy(path, tempFile, overwrite: true);
+
+				using var fs = new FileStream(tempFile, FileMode.Open, FileAccess.Read, FileShare.Read);
+				var sampleSize = (int)Math.Min(options.SampleSize, fs.Length);
+				buffer = new byte[sampleSize];
+				read = fs.Read(buffer, 0, sampleSize);
+			}
+			catch (Exception ex)
+			{
+				_logger.LogWarning($"Не удалось прочитать файл {path}: {ex.Message}");
+				return new TextDetectionResult
+				{
+					IsText = false,
+					Confidence = 0.0,
+					DetectedEncoding = null,
+					Reason = "Файл заблокирован или недоступен."
+				};
+			}
+			finally
+			{
+				// Удаляем временный файл
+				try { File.Delete(tempFile); } catch { /* игнорируем ошибки удаления */ }
+			}
+
+			var ext = Path.GetExtension(path) ?? string.Empty;
+			var ctx = new HeuristicContext(buffer, read, ext, options);
+
+			double score = 0.5; // базовый нейтральный приор
+			var notes = new List<string>();
+			Encoding? pickedEncoding = null;
+
+			_logger.LogInformation($"Запуск эвристических методов.");
+			foreach (var h in _heuristics)
+			{
+				var r = h.Apply(ctx);
+				if (r != null)
+				{
+					score += r.ScoreDelta;
+					notes.Add(r.Note);
+					if (r.SuggestedEncoding != null) pickedEncoding = r.SuggestedEncoding;
+				}
+			}
+
+			score = Math.Clamp(score, 0.0, 1.0);
+			bool isText = score >= options.MinConfidence;
+
+			// если кодировка ещё не определена — попробуем разумно догадаться
+			pickedEncoding ??= GuessFallbackEncoding(ctx);
+
+			// пустой файл считаем текстом
+			if (read == 0)
+			{
+				isText = true;
+				score = Math.Max(score, 0.75);
+				notes.Add("Пустой файл.");
+			}
+
+			return new TextDetectionResult
+			{
+				IsText = isText,
+				Confidence = score,
+				DetectedEncoding = pickedEncoding,
+				Reason = string.Join(" ", notes)
+			};
+		}
+	}
+}
+
+
+C:\Users\kamil\YandexDisk\Files\ARCANUM_STUDIO\Other\Packer\Packer\Workers\TextProcessorWorker.cs
+using Microsoft.Extensions.Logging;
+using Packer.Core;
+using System.Reflection;
+
+namespace Packer.Workers
+{
+	internal class TextProcessorWorker : TextProcessor
+	{
+		private string _pathToFile = "pack.txt";
+		private string _exePath = Assembly.GetExecutingAssembly().Location;
+		private string _baseInfo = string.Empty;
+		private readonly ILogger<TextProcessorWorker> _logger;
+
+		public TextProcessorWorker(ILogger<TextProcessorWorker> logger)
+		{
+			if(File.Exists(_pathToFile))
+				File.Delete(_pathToFile);
+			//File.Create(_pathToFile);
+
+			_baseInfo = $"Location: {_exePath}\r\n" +
+						$"Date: {DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")}\r\n" +
+						Environment.NewLine;
+			File.WriteAllText(_pathToFile, _baseInfo);
+
+			_logger = logger;
+		}
+
+		public override void Process()
+		{
+			if (File.Exists(_pathToFile))
+			{
+				_logger.LogInformation("Запись данных в файл.");
+				using (StreamWriter writer = new StreamWriter(_pathToFile))
+				{
+					foreach (var item in _textData)
+					{
+						writer.WriteLine(item.Key);
+						writer.WriteLine(item.Value);
+						writer.Write(Environment.NewLine);
+					}
+				}
+				_logger.LogInformation("Данные записаны.");
+			}
+		}
+	}
+}
+
+
