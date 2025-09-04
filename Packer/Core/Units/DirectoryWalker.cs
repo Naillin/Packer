@@ -5,7 +5,7 @@ namespace Packer.Core
 	internal abstract class DirectoryWalker : IDirectoryWalker
 	{
 		protected DirectoryInfo _directoryInfo;
-		private string _ignorePath = ".packingore";
+		private string _ignorePath = ".packignore";
 		protected HashSet<string> _ignore = new HashSet<string>();
 
 		public DirectoryWalker(string path = "")
@@ -21,7 +21,7 @@ namespace Packer.Core
 		private void GetIgnore()
 		{
 			if (!File.Exists(_ignorePath))
-				File.WriteAllText(_ignorePath, ".packingore\npack.txt");
+				File.WriteAllText(_ignorePath, ".packignore\npack.txt");
 			else
 				_ignore = File.ReadAllLines(_ignorePath).ToHashSet<string>();
 		}
@@ -32,7 +32,7 @@ namespace Packer.Core
 			string name = fsi.Name;
 			string ext = fsi is FileInfo fi ? fi.Extension : string.Empty;
 
-			if (name == "pack.txt" || name == ".packingore" || ext == ".packingore")
+			if (name == "pack.txt" || name == ".packignore" || ext == ".packignore")
 				return true;
 
 			// Проверяем по полному пути

@@ -54,7 +54,6 @@ namespace Packer
 			}
 		});
 
-
 		private static (string, int) parseArgs(string[] args)
 		{
 			// Парсим аргументы
